@@ -12,7 +12,10 @@ import os
 
 ###### config ######
 
+#edit this for custom dictionary
 dict_file = "TWL06.txt"
+
+
 temp_file = "trie.tmp"
 output_file = r"..\trie.hsdat"
 
@@ -164,7 +167,9 @@ outfile.close()
 
 ################## call Haskell converter ##########################
 
-# First build it if necessary:
+# Build it if necessary:
 subprocess.call(["ghc", "--make", "-O2", "TrieGen.hs"])
+
+# serialize to Haskell Binary format
 subprocess.call(["TrieGen.exe", temp_file, output_file])
 os.remove(temp_file)
