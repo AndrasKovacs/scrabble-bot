@@ -5,6 +5,7 @@ import Data.Array.Unboxed           ((!), UArray, Array, listArray, array, bound
 import Data.Binary                  (decodeFile)
 import Data.Bits                    (shiftL, shiftR, (.&.), setBit, clearBit, testBit)
 import Data.List                    (find, transpose, foldl', sortBy, partition)
+import Data.List.Split              (chunksOf)
 import Data.Char                    (chr, ord, isLower, toUpper, toLower, isLetter)
 import Data.Ix                      (range, inRange)
 import Control.Arrow                ((***), first, second)
@@ -21,9 +22,9 @@ type ScrabbleTable  = Array CellIndex Cell
 type Score          = Int
 type Prefix         = (TrieNode, String, (Int, String))
 
-data Cell = Filled Char | Anchor {upWord, downWord :: String, upScore, downScore :: Score, lset:: LetterSet} | Empty deriving (Show, Eq)
-data Direction = V | H deriving (Show)
-data Play = Play {direction :: Direction, location :: CellIndex, score :: Score, word :: String} deriving (Show)
+data Cell = Filled Char | Anchor {crossScore :: !Score, lset:: !LetterSet} | Empty deriving (Eq, Show)
+data Direction = V | H deriving (Eq, Show)
+data Play = Play {direction :: Direction, location :: CellIndex, score :: Score, word :: String} deriving (Eq, Show)
 
 tableBounds = ((1,1), (15,15)) :: (CellIndex, CellIndex)
 inBounds    = inRange tableBounds
@@ -152,12 +153,11 @@ parseTable table trie | check table = listArray tableBounds $ map go $ assocs ta
 
     go (i, c) | isLetter c             = Filled c
               | all (==' ') $ neighs i = Empty
-              | otherwise              = Anchor fromUp fromDown upScore downScore lset where
+              | otherwise              = Anchor crsScore lset where
                     step      = takeWhile (/=' ') . map (toUpper . (table'!)) . tail
                     fromUp    = reverse $ step $ goUp i
                     fromDown  = step $ goDown i
-                    upScore   = sum $ map pieceScore fromUp
-                    downScore = sum $ map pieceScore fromDown
+                    crsScore  = sum $ map (sum . map pieceScore) [fromUp, fromDown]
                     lset      | null (fromUp ++ fromDown) = fullLSet
                               | otherwise = fromList $ wildcard: [c | c <- ['A'..'Z'], 
                                                                       contains trie (fromUp ++ c:fromDown)]
@@ -241,71 +241,64 @@ genPlays tbl trie rck = concatMap attachScore . filter (not.null.snd) . parMap r
 
             process (!wsc, !csc, !wmods, !bingo) (char, cell, bonus) = let
                 notfill = not $ isFilled cell
-                lscore = let ps = pieceScore char in case (cell, bonus) of
-                    (Filled _, _) -> ps
-                    (_,      LS2) -> 2 * ps
-                    (_,      LS3) -> 3 * ps
-                    _             -> ps
-                csc' = case cell of
-                    Anchor {..} -> case upScore + downScore of
-                                        0 -> csc
-                                        n -> csc + (wordMod (lscore + n) bonus) 
-                    _           -> csc
-                wmods' = if elem bonus [WS2, WS3] && notfill
-                    then bonus:wmods
-                    else wmods
+                ps      = pieceScore char
+                cscore  = crossScore cell
+                lscore | not notfill  = ps
+                       | bonus == LS2 = 2*ps
+                       | bonus == LS3 = 3*ps
+                       | otherwise    = ps
+                csc' = csc + (if isAnchor cell && cscore /= 0
+                                then wordMod (lscore + cscore) bonus
+                                else 0)
+                wmods' = if elem bonus [WS2, WS3] && notfill then bonus:wmods else wmods
                 in (wsc + lscore, csc', wmods', bingo + fromEnum notfill)
 
             (wsc, csc, wmods, bingo) = foldl' process (0, 0, [], 0) (zip3 word cells bonuses)
             totalScore = csc + (foldl' wordMod wsc wmods) + (if bingo == 7 then 50 else 0)
 
 
-generateAll :: [String] -> TrieNode -> String -> [Play]
-generateAll table trie rack = let
+genAllPlays :: [String] -> TrieNode -> String -> [Play]
+genAllPlays table trie rack = let
     [a, b] = map (\t -> genPlays t trie rack) [table, transpose table]
     horizontal = [Play H i scr wrd | (i, scr, wrd) <- a]
     vertical   = [Play V (swap i) scr wrd | (i, scr, wrd) <- b]
     in sortBy (flip $ comparing score) (horizontal ++ vertical)
 
 
+showPlay :: [String] -> Play -> [String]
+showPlay table p@(Play d l s w) = let
+    as = zip ((if d == H then goRight else goDown) l) w
+    bs = zip (range tableBounds) (concat table)
+
+    insert ((i, a):as) ((j, b):bs)
+        | i == j    = a: insert as bs
+        | otherwise = b: insert ((i, a):as) bs
+    insert a b = map snd a ++ map snd b
+
+    in show p :(chunksOf (length table) $ insert as bs)
+  
+
 main = do
     trie <- readTrie
-    let solutions = generateAll table trie "QR"
-    print $ length solutions
-    mapM_ print $ take 10 $ solutions
+    let solutions = genAllPlays table trie "ETORA__"
+    putStrLn $ "Number of solutions: " ++ show (length solutions)
+    putStrLn $ "Top 10 highest score solutions:\n"
+    mapM_ (mapM_ print . showPlay table) (take 10 solutions)
 
 
 table =  [
-    "             AT",
-    "              O",
-    "               ",
-    "               ",
-    "               ",
-    "               ",
-    "               ",
-    "               ",
-    "               ",
+    "          CARAT",
+    "          A   O",
+    "          I    ",
+    "          R    ",
+    "     HARDEN    ",
+    "         N     ",
+    "         T     ",
+    "   CONTOUR     ",
+    "         YONDER",
     "               ",
     "               ",
     "               ",
     "               ",
     "               ",
     "               "]
-
---table =  [
---    "               ",
---    "               ",
---    "               ",
---    "               ",
---    "    CONUNDRUMS ",
---    "       N       ",
---    "       D       ",
---    "       E       ",
---    "       R       ",
---    "       D       ",
---    "       O       ",
---    "       G       ",
---    "       S       ",
---    "               ",
---    "               "]
-

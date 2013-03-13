@@ -13,7 +13,7 @@ import os
 ###### config ######
 
 #edit this for custom dictionary
-dict_file = "TWL06.txt"
+dict_file = r"Dictionaries\TWL06.txt"
 
 
 temp_file = "trie.tmp"
