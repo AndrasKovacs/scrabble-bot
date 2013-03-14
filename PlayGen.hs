@@ -30,6 +30,8 @@ tableBounds = ((1,1), (15,15)) :: (CellIndex, CellIndex)
 inBounds    = inRange tableBounds
 outOfBounds = not . inBounds
 
+trieFile = "twl06.dawg"
+
 wildcard = '_'
 
 goIndex direction = takeWhile inBounds . iterate direction
@@ -85,48 +87,43 @@ instance Show LetterSet where
 -- ***************** Trie functions *******************************
 
 data TrieNode = TrieNode {
-    trieArray :: !TrieArray,
-    index     :: !Int32,
-    children  :: !Int32, 
-    val       :: !Char, 
-    eol       :: !Bool, 
-    eow       :: !Bool} 
+    {- UNPACK -} trieArray :: !TrieArray,
+    {- UNPACK -} children  :: !Int32, 
+    {- UNPACK -} val       :: !Char, 
+    {- UNPACK -} eol       :: !Bool, 
+    {- UNPACK -} eow       :: !Bool} 
 
 instance Show TrieNode where
-    show node = "{index: " ++ (show $ index node) ++
-                ", children: " ++ (show $ children node) ++
+    show node = "{children: " ++ (show $ children node) ++
                 ", val: " ++ val node:
                 ", eol: " ++ (show $ eol node) ++
                 ", eow: " ++ (show $ eow node) ++ "}"
 
-getNode :: TrieNode -> Int32 -> TrieNode
-getNode node i = 
+getNode :: TrieArray -> Int32 -> TrieNode
+getNode !t !i = let n = t ! i in
     TrieNode {trieArray = t,
-              index     = i,
               children  = shiftR (n .&. 4294966272) 10,
               val       = chr $ fromIntegral $ shiftR (n .&. 1020) 2,
               eol       = shiftR (n .&. 2) 1 == 1,
               eow       = (n .&. 1) == 1}
-    where t = trieArray node
-          n = t ! i
 
 getRoot :: TrieArray -> TrieNode
-getRoot trie = getNode (TrieNode trie 0 0 '0' False False) (snd $ bounds trie)
+getRoot t = getNode t (snd $ bounds t)
 
 readTrie :: IO TrieNode
-readTrie = getRoot `fmap` decodeFile "trie.hsdat"
+readTrie = getRoot `fmap` decodeFile trieFile
 
 getChildren :: TrieNode -> [TrieNode]
-getChildren node@(TrieNode _ i ch _ _ _)
-    | i == ch   = []
-    | otherwise = go child where
-        child = getNode node ch
-        go !n = if eol n then [n] else n:go (getNode n (index n + 1))
+getChildren !(TrieNode t ch _ _ _)
+    | ch == 0   = []
+    | otherwise = go ch [] where
+        go !i !acc = if eol n then n:acc else go (i + 1) (n:acc) where
+            n = getNode t i
 
 contains :: TrieNode -> String -> Bool
 contains = go where
-    go n []     = eow n
-    go n (x:xs) = case find ((==toUpper x) . val) (getChildren n) of
+    go !n ![]     = eow n
+    go !n !(x:xs) = case find ((==toUpper x) . val) (getChildren n) of
         Nothing -> False
         Just n' -> go n' xs
 
@@ -239,7 +236,7 @@ genPlays tbl trie rck = concatMap attachScore . filter (not.null.snd) . parMap r
                 WS3 -> 3 * s
                 _   -> s 
 
-            process (!wsc, !csc, !wmods, !bingo) (char, cell, bonus) = let
+            process !(!wsc, !csc, !wmods, !bingo) (char, cell, bonus) = let
                 notfill = not $ isFilled cell
                 ps      = pieceScore char
                 cscore  = crossScore cell
@@ -280,10 +277,9 @@ showPlay table p@(Play d l s w) = let
 
 main = do
     trie <- readTrie
-    let solutions = genAllPlays table trie "ETORA__"
+    let solutions = genAllPlays table trie "_"
     putStrLn $ "Number of solutions: " ++ show (length solutions)
-    putStrLn $ "Top 10 highest score solutions:\n"
-    mapM_ (mapM_ print . showPlay table) (take 10 solutions)
+    mapM_ print $ take 10 $ solutions
 
 
 table =  [
@@ -295,7 +291,7 @@ table =  [
     "         N     ",
     "         T     ",
     "   CONTOUR     ",
-    "         YONDER",
+    "         Y     ",
     "               ",
     "               ",
     "               ",
