@@ -57,7 +57,7 @@ pieceScore c | isLower c = 0
 data Bonus = Nil | LS2 | LS3 | WS2 | WS3 deriving (Eq, Enum, Show)
 
 bonusTable :: Array CellIndex Bonus
-bonusTable = listArray tableBounds $ concat $ map (map toEnum) $ (\x-> x ++ (reverse $ init x)) [
+bonusTable = listArray tableBounds $ concatMap (map toEnum) $ (\x-> x ++ (reverse $ init x)) [
     [4, 0, 0, 1, 0, 0, 0, 4, 0, 0, 0, 1, 0, 0, 4],
     [0, 3, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 3, 0],
     [0, 0, 3, 0, 0, 0, 1, 0, 1, 0, 0, 0, 3, 0, 0],
@@ -187,7 +187,7 @@ genPlays dir tbl trie rck = getScores =<< (filter (not . null . snd) . parMap rd
             c = f (val n)
 
     leftPartMemo :: Array Int [Prefix]
-    leftPartMemo = accumArray (flip (:)) [] (0, 7) [(length pref, a) | a@(n, pref, (w, r)) <- leftParts]
+    leftPartMemo = accumArray (flip (:)) [] (0, length rck) [(length pref, a) | a@(n, pref, (w, r)) <- leftParts]
 
     getLeftParts :: Int -> [Prefix]
     getLeftParts l = [0..l] >>= (leftPartMemo!)
