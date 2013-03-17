@@ -16,15 +16,13 @@ import Data.Tuple                   (swap)
 
 -- *********************** Basic types, helpers and game data *****************************
 
-type TrieArray      = UArray Int32 Int32
-type CellIndex      = (Int32, Int32)
-type ScrabbleTable  = Array CellIndex Cell
-type Score          = Int
-type Prefix         = (TrieNode, String, (Int, String))
+type TrieArray  = UArray Int32 Int32
+type CellIndex  = (Int32, Int32)
+type Prefix     = (TrieNode, String, (Int, String))
 
-data Cell = Filled Char | Anchor {crossScore :: !Score, lset:: !LetterSet} | Empty deriving (Eq, Show)
+data Cell      = Filled Char | Anchor {crossScore :: !Int, lset:: !LetterSet} | Empty deriving (Eq, Show)
 data Direction = V | H deriving (Eq, Show)
-data Play = Play {direction :: Direction, location :: CellIndex, score :: Score, word :: String} deriving (Eq, Show)
+data Play      = Play {direction :: Direction, location :: CellIndex, score :: Int, word :: String} deriving (Eq, Show)
 
 tableBounds = ((1,1), (15,15)) :: (CellIndex, CellIndex)
 inBounds    = inRange tableBounds
@@ -56,7 +54,7 @@ pieceScore :: Char -> Int
 pieceScore c | isLower c = 0
              | otherwise = letterScores ! (ord c)
 
-data Bonus = Nil | LS2 | LS3 | WS2 | WS3 deriving (Eq, Ord, Enum, Show)
+data Bonus = Nil | LS2 | LS3 | WS2 | WS3 deriving (Eq, Enum, Show)
 
 bonusTable :: Array CellIndex Bonus
 bonusTable = listArray tableBounds $ concat $ map (map toEnum) $ (\x-> x ++ (reverse $ init x)) [
@@ -76,7 +74,6 @@ newtype LetterSet = LSet Int32 deriving (Eq)
 
 hasLetter (LSet x) l = testBit x (ord l - ord 'A')
 setLetter (LSet x) l = LSet $ setBit x (ord l - ord 'A')
-delLetter (LSet x) l = LSet $ clearBit x (ord l - ord 'A')
 fromList = foldl' setLetter (LSet 0)
 fullLSet = fromList $ wildcard:['A'..'Z']
 
@@ -88,13 +85,13 @@ instance Show LetterSet where
 
 data TrieNode = TrieNode {
     {- UNPACK -} trieArray :: !TrieArray,
-    {- UNPACK -} children  :: !Int32, 
+    {- UNPACK -} child     :: !Int32, 
     {- UNPACK -} val       :: !Char, 
     {- UNPACK -} eol       :: !Bool, 
     {- UNPACK -} eow       :: !Bool} 
 
 instance Show TrieNode where
-    show node = "{children: " ++ (show $ children node) ++
+    show node = "{child: " ++ (show $ child node) ++
                 ", val: " ++ val node:
                 ", eol: " ++ (show $ eol node) ++
                 ", eow: " ++ (show $ eow node) ++ "}"
@@ -102,7 +99,7 @@ instance Show TrieNode where
 getNode :: TrieArray -> Int32 -> TrieNode
 getNode !t !i = let n = t ! i in
     TrieNode {trieArray = t,
-              children  = shiftR (n .&. 4294966272) 10,
+              child     = shiftR (n .&. 4294966272) 10,
               val       = chr $ fromIntegral $ shiftR (n .&. 1020) 2,
               eol       = shiftR (n .&. 2) 1 == 1,
               eow       = (n .&. 1) == 1}
@@ -138,7 +135,7 @@ getNodeOf n word = go n word where
      - uppercase letters: normal pieces
      - lowercase letters: wildcards assumed to be a certain letter
      - space: empty cell -}
-parseTable :: [String] -> TrieNode -> ScrabbleTable 
+parseTable :: [String] -> TrieNode -> Array CellIndex Cell 
 parseTable table trie | check table = listArray tableBounds $ map go $ assocs table' 
                       | otherwise   = error "Table must be 15x15" where
 
@@ -161,10 +158,10 @@ parseTable table trie | check table = listArray tableBounds $ map go $ assocs ta
 
 -- **************************** play generation ***********************************************
 
-genPlays :: [String] -> TrieNode -> String -> [(CellIndex, Score, String)]
-genPlays tbl trie rck = concatMap attachScore . filter (not.null.snd) . parMap rdeepseq genPlaysAt $ range tableBounds where
+genPlays :: Direction -> [String] -> TrieNode -> String -> [Play]
+genPlays dir tbl trie rck = getScores =<< (filter (not . null . snd) . parMap rdeepseq genPlaysAt . range) tableBounds where
 
-    table :: ScrabbleTable
+    table :: Array CellIndex Cell
     table = parseTable tbl trie 
 
     rack :: String 
@@ -178,26 +175,25 @@ genPlays tbl trie rck = concatMap attachScore . filter (not.null.snd) . parMap r
     maybeDel (x:xs) n | x == val n = Just (n, xs)
                       | otherwise  = maybeDel xs n >>= return . second (x:)
 
-    genPref :: Int -> [Prefix]
-    genPref l = (trie, "", (wcardnum, rack)): (if l == 0 then [] else next trie rack l wcardnum) where
+    leftParts :: [Prefix]
+    leftParts = (trie, "", (wcardnum, rack)): next trie rack wcardnum where
 
-        next n r l w = no_wcard ++ with_wcard where
+        next n r w = no_wcard ++ with_wcard where
             chs        = getChildren n 
-            no_wcard   = (if null r then [] else concat [go id ch r' (l - 1) w | Just (ch, r') <- map (maybeDel r) chs]) 
-            with_wcard = (if w == 0 then [] else concat [go toLower ch r (l - 1) (w - 1) | ch <- chs])
+            no_wcard   = (if null r then [] else concat [go id ch r' w | Just (ch, r') <- map (maybeDel r) chs]) 
+            with_wcard = (if w == 0 then [] else concat [go toLower ch r (w - 1) | ch <- chs])
 
-        go f n r l w = (n, [v], (w, r)): rest where
-            v    = f (val n)
-            rest = (if l == 0 then [] else map (\(a, b, c) -> (a, v:b, c)) (next n r l w))
+        go f n r w = (n, [c], (w, r)): [(n, c:p, wr) | (n, p, wr) <- next n r w] where
+            c = f (val n)
 
-    prefMemo :: Array Int [Prefix]
-    prefMemo = accumArray (flip (:)) [] (0, 7) [(length pref, a) | a@(n, pref, (w, r)) <- genPref 7]
+    leftPartMemo :: Array Int [Prefix]
+    leftPartMemo = accumArray (flip (:)) [] (0, 7) [(length pref, a) | a@(n, pref, (w, r)) <- leftParts]
 
-    prefixes :: Int -> [Prefix]
-    prefixes maxlen = [0..maxlen] >>= (prefMemo!)
+    getLeftParts :: Int -> [Prefix]
+    getLeftParts l = [0..l] >>= (leftPartMemo!)
 
-    suffixes :: CellIndex -> Prefix -> [(String, String)]
-    suffixes i (n, prefix, (w, r)) = map (prefix,) $ next n r w i (table ! i) where
+    getRightParts :: CellIndex -> Prefix -> [(String, String)]
+    getRightParts i (n, pref, (w, r)) = map (pref,) $ next n r w i (table ! i) where
 
         next n r w (i,j) (Filled c) = concat [go (const c) ch r w (i, j + 1) | ch <- getChildren n, val ch == toUpper c]
         next n r w (i,j) cell       = no_wcard ++ with_wcard where
@@ -206,37 +202,38 @@ genPlays tbl trie rck = concatMap attachScore . filter (not.null.snd) . parMap r
             no_wcard   = (if null r then [] else concat [go id ch r' w i' | Just (ch, r') <- map (maybeDel r) chs])
             with_wcard = (if w == 0 then [] else concat [go toLower ch r (w - 1) i' | ch <- chs])
 
-        go f n r w i = new ++ rest where
-            v    = f (val n)
+        go f n r w i = add ++ rest where
+            c    = f (val n)
             cell = table ! i
             inb  = inBounds i
-            new  = (if eow n && ((not inb) || (not $ isFilled cell)) then [[v]] else [])
-            rest = (if inb then map (v:) (next n r w i cell) else []) 
+            add  = (if eow n && ((not inb) || (not $ isFilled cell)) then [[c]] else [])
+            rest = (if inb then map (c:) (next n r w i cell) else []) 
 
     genPlaysAt :: CellIndex -> (CellIndex, [(String, String)])
     genPlaysAt i | not $ isAnchor $ table ! i = (i, [])
-                 | not (null leftWord)        = (i, suffixes i (leftNode, leftWord, (wcardnum, rack)))
-                 | otherwise                  = (i, prefixes prefLen >>= suffixes i)
+                 | not (null leftWord)        = (i, getRightParts i (leftNode, leftWord, (wcardnum, rack)))
+                 | otherwise                  = (i, getLeftParts prefLen >>= getRightParts i)
         where stepLeft = map (table!) $ drop 1 $ goLeft i
               leftWord = reverse $ map (\(Filled c) -> c) $ takeWhile isFilled stepLeft
               leftNode = getNodeOf trie leftWord
               prefLen  = min 7 (length $ takeWhile isEmpty $ stepLeft)
 
-    attachScore :: (CellIndex, [(String, String)]) -> [(CellIndex, Score, String)]
-    attachScore ((i, j), playwords) = map go playwords where
+    getScores :: (CellIndex, [(String, String)]) -> [Play]
+    getScores ((i, j), playwords) = map go playwords where
 
-        go (a, b) = (start, totalScore, word) where
+        go (a, b) = Play dir start' totalScore word where
             start   = (i, j - (fromIntegral $ length a))
             cells   = map (table!) (goRight start)
             bonuses = map (bonusTable!) (goRight start)
             word    = a ++ b
+            start'  = (if dir == H then id else swap) start
 
             wordMod s = \case
                 WS2 -> 2 * s
                 WS3 -> 3 * s
                 _   -> s 
 
-            process !(!wsc, !csc, !wmods, !bingo) (char, cell, bonus) = let
+            process (!wsc, !csc, !wmods, !bingo) (char, cell, bonus) = let
                 notfill = not $ isFilled cell
                 ps      = pieceScore char
                 cscore  = crossScore cell
@@ -255,11 +252,8 @@ genPlays tbl trie rck = concatMap attachScore . filter (not.null.snd) . parMap r
 
 
 genAllPlays :: [String] -> TrieNode -> String -> [Play]
-genAllPlays table trie rack = let
-    [a, b] = map (\t -> genPlays t trie rack) [table, transpose table]
-    horizontal = [Play H i scr wrd | (i, scr, wrd) <- a]
-    vertical   = [Play V (swap i) scr wrd | (i, scr, wrd) <- b]
-    in sortBy (flip $ comparing score) (horizontal ++ vertical)
+genAllPlays table trie rack = sortBy (flip $ comparing score) plays where
+    plays = zip [H, V] [table, transpose table] >>= \(d, t) -> genPlays d t trie rack
 
 
 showPlay :: [String] -> Play -> [String]
@@ -277,24 +271,27 @@ showPlay table p@(Play d l s w) = let
 
 main = do
     trie <- readTrie
-    let solutions = genAllPlays table trie "_"
+    let solutions = genAllPlays table trie "ETAOI_C"
     putStrLn $ "Number of solutions: " ++ show (length solutions)
-    mapM_ print $ take 10 $ solutions
+    mapM_ (mapM_ print) $ take 10 $ map (showPlay table) solutions
+
+
 
 
 table =  [
     "          CARAT",
-    "          A   O",
+    "          A    ",
     "          I    ",
     "          R    ",
     "     HARDEN    ",
     "         N     ",
     "         T     ",
-    "   CONTOUR     ",
-    "         Y     ",
+    "      TOUR     ",
+    "         YONDER",
     "               ",
     "               ",
     "               ",
     "               ",
     "               ",
     "               "]
+
