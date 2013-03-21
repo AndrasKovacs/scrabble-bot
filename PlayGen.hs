@@ -9,28 +9,33 @@ import Data.List.Split              (chunksOf)
 import Data.Char                    (chr, ord, isLower, toUpper, toLower, isLetter)
 import Data.Ix                      (range, inRange)
 import Control.Arrow                ((***), first, second)
-import Debug.Trace                  (traceShow)
 import Control.Parallel.Strategies  (parMap, rdeepseq)
 import Data.Ord                     (comparing)
 import Data.Tuple                   (swap)
+import Text.Printf                  (printf)
 
--- *********************** Basic types, helpers and game data *****************************
+
+-- config
+
+trieFile = "twl06.dawg"
+wildcard = '_'
+maxRackSize = 7
+maxWcards = 2
+
+
+-- Basic types, helpers and game data 
 
 type TrieArray  = UArray Int32 Int32
 type CellIndex  = (Int32, Int32)
-type Prefix     = (TrieNode, String, (Int, String))
+type PrefixData = (TrieNode, String, (Int, String))
 
 data Cell      = Filled Char | Anchor {crossScore :: !Int, lset:: !LetterSet} | Empty deriving (Eq, Show)
 data Direction = V | H deriving (Eq, Show)
-data Play      = Play {direction :: Direction, location :: CellIndex, score :: Int, word :: String} deriving (Eq, Show)
+data Play      = Play {direction :: !Direction, location :: !CellIndex, score :: !Int, word :: !String} deriving (Eq, Show)
 
 tableBounds = ((1,1), (15,15)) :: (CellIndex, CellIndex)
 inBounds    = inRange tableBounds
 outOfBounds = not . inBounds
-
-trieFile = "twl06.dawg"
-
-wildcard = '_'
 
 goIndex direction = takeWhile inBounds . iterate direction
 [goUp, goDown, goLeft, goRight] = map goIndex [pred *** id, succ *** id, id *** pred, id *** succ]
@@ -67,9 +72,6 @@ bonusTable = listArray tableBounds $ concatMap (map toEnum) $ (\x-> x ++ (revers
     [0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0],
     [4, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 1, 0, 0, 4]]
 
-
--- ****************** LetterSet ************************************
-
 newtype LetterSet = LSet Int32 deriving (Eq)
 
 hasLetter (LSet x) l = testBit x (ord l - ord 'A')
@@ -81,7 +83,7 @@ instance Show LetterSet where
     show x = "{LSet " ++ (filter (hasLetter x) (wildcard:['A'..'Z'])) ++  "}"
 
 
--- ***************** Trie functions *******************************
+-- Trie traversal functions and data
 
 data TrieNode = TrieNode {
     {- UNPACK -} trieArray :: !TrieArray,
@@ -91,10 +93,7 @@ data TrieNode = TrieNode {
     {- UNPACK -} eow       :: !Bool} 
 
 instance Show TrieNode where
-    show node = "{child: " ++ (show $ child node) ++
-                ", val: " ++ val node:
-                ", eol: " ++ (show $ eol node) ++
-                ", eow: " ++ (show $ eow node) ++ "}"
+    show (TrieNode {..}) = printf "{child: %d, val: %c, eol: %s, eow: %s}" child val (show eol) (show eow)
 
 getNode :: TrieArray -> Int32 -> TrieNode
 getNode !t !i = let n = t ! i in
@@ -104,11 +103,9 @@ getNode !t !i = let n = t ! i in
               eol       = shiftR (n .&. 2) 1 == 1,
               eow       = (n .&. 1) == 1}
 
-getRoot :: TrieArray -> TrieNode
-getRoot t = getNode t (snd $ bounds t)
-
 readTrie :: IO TrieNode
-readTrie = getRoot `fmap` decodeFile trieFile
+readTrie = getRoot `fmap` decodeFile trieFile where
+    getRoot t = getNode t (snd $ bounds t)
 
 getChildren :: TrieNode -> [TrieNode]
 getChildren !(TrieNode t ch _ _ _)
@@ -131,10 +128,6 @@ getNodeOf n word = go n word where
         Just n' -> go n' xs
         Nothing -> error $ "The Scrabble table contains an invalid word: " ++ word
 
-{- Parse format: 
-     - uppercase letters: normal pieces
-     - lowercase letters: wildcards assumed to be a certain letter
-     - space: empty cell -}
 parseTable :: [String] -> TrieNode -> Array CellIndex Cell 
 parseTable table trie | check table = listArray tableBounds $ map go $ assocs table' 
                       | otherwise   = error "Table must be 15x15" where
@@ -148,34 +141,32 @@ parseTable table trie | check table = listArray tableBounds $ map go $ assocs ta
     go (i, c) | isLetter c             = Filled c
               | all (==' ') $ neighs i = Empty
               | otherwise              = Anchor crsScore lset where
-                    step      = takeWhile (/=' ') . map (toUpper . (table'!)) . tail
-                    fromUp    = reverse $ step $ goUp i
-                    fromDown  = step $ goDown i
-                    crsScore  = sum $ map (sum . map pieceScore) [fromUp, fromDown]
-                    lset      | null (fromUp ++ fromDown) = fullLSet
-                              | otherwise = fromList $ wildcard: [c | c <- ['A'..'Z'], 
-                                                                      contains trie (fromUp ++ c:fromDown)]
 
--- **************************** play generation ***********************************************
+        step      = takeWhile (/=' ') . map (toUpper . (table'!)) . tail
+        fromUp    = reverse $ step $ goUp i
+        fromDown  = step $ goDown i
+        crsScore  = sum $ map (sum . map pieceScore) [fromUp, fromDown]
+        lset      | null (fromUp ++ fromDown) = fullLSet
+                  | otherwise = fromList $ wildcard: [c | c <- ['A'..'Z'], 
+                                                          contains trie (fromUp ++ c:fromDown)]
+
+
+-- Play generation
 
 genPlays :: Direction -> [String] -> TrieNode -> String -> [Play]
-genPlays dir tbl trie rck = getScores =<< (filter (not . null . snd) . parMap rdeepseq genPlaysAt . range) tableBounds where
+genPlays dir tbl trie rck | length rck > maxRackSize = error ("Rack too big, limit is " ++ show maxRackSize)
+                          | wcardnum   > maxWcards   = error ("Too many wildcards, limit is " ++ show maxWcards)
+                          | otherwise = getScores =<< (filter (not . null . snd) . parMap rdeepseq genPlaysAt . range) tableBounds where
 
-    table :: Array CellIndex Cell
     table = parseTable tbl trie 
-
-    rack :: String 
-    (wcardlist, rack) = partition (==wildcard) rck
-
-    wcardnum :: Int 
-    wcardnum = length wcardlist
+    (wcardnum, rack) = first length $ partition (==wildcard) rck
 
     maybeDel :: String -> TrieNode -> Maybe (TrieNode, String)
     maybeDel []     n = Nothing
     maybeDel (x:xs) n | x == val n = Just (n, xs)
                       | otherwise  = maybeDel xs n >>= return . second (x:)
 
-    leftParts :: [Prefix]
+    leftParts :: [PrefixData]
     leftParts = (trie, "", (wcardnum, rack)): next trie rack wcardnum where
 
         next n r w = no_wcard ++ with_wcard where
@@ -186,13 +177,13 @@ genPlays dir tbl trie rck = getScores =<< (filter (not . null . snd) . parMap rd
         go f n r w = (n, [c], (w, r)): [(n, c:p, wr) | (n, p, wr) <- next n r w] where
             c = f (val n)
 
-    leftPartMemo :: Array Int [Prefix]
-    leftPartMemo = accumArray (flip (:)) [] (0, length rck) [(length pref, a) | a@(n, pref, (w, r)) <- leftParts]
+    leftPartMemo :: Array Int [PrefixData]
+    leftPartMemo = accumArray (flip (:)) [] (0, maxRackSize) [(length pref, a) | a@(n, pref, (w, r)) <- leftParts]
 
-    getLeftParts :: Int -> [Prefix]
+    getLeftParts :: Int -> [PrefixData]
     getLeftParts l = [0..l] >>= (leftPartMemo!)
 
-    getRightParts :: CellIndex -> Prefix -> [(String, String)]
+    getRightParts :: CellIndex -> PrefixData -> [(String, String)]
     getRightParts i (n, pref, (w, r)) = map (pref,) $ next n r w i (table ! i) where
 
         next n r w (i,j) (Filled c) = concat [go (const c) ch r w (i, j + 1) | ch <- getChildren n, val ch == toUpper c]
@@ -212,11 +203,12 @@ genPlays dir tbl trie rck = getScores =<< (filter (not . null . snd) . parMap rd
     genPlaysAt :: CellIndex -> (CellIndex, [(String, String)])
     genPlaysAt i | not $ isAnchor $ table ! i = (i, [])
                  | not (null leftWord)        = (i, getRightParts i (leftNode, leftWord, (wcardnum, rack)))
-                 | otherwise                  = (i, getLeftParts prefLen >>= getRightParts i)
-        where stepLeft = map (table!) $ drop 1 $ goLeft i
-              leftWord = reverse $ map (\(Filled c) -> c) $ takeWhile isFilled stepLeft
-              leftNode = getNodeOf trie leftWord
-              prefLen  = min 7 (length $ takeWhile isEmpty $ stepLeft)
+                 | otherwise                  = (i, getLeftParts prefLen >>= getRightParts i) where 
+
+        stepLeft = map (table!) $ drop 1 $ goLeft i
+        leftWord = reverse $ map (\(Filled c) -> c) $ takeWhile isFilled stepLeft
+        leftNode = getNodeOf trie leftWord
+        prefLen  = min maxRackSize (length $ takeWhile isEmpty $ stepLeft)
 
     getScores :: (CellIndex, [(String, String)]) -> [Play]
     getScores ((i, j), playwords) = map go playwords where
@@ -237,13 +229,16 @@ genPlays dir tbl trie rck = getScores =<< (filter (not . null . snd) . parMap rd
                 notfill = not $ isFilled cell
                 ps      = pieceScore char
                 cscore  = crossScore cell
+
                 lscore | not notfill  = ps
                        | bonus == LS2 = 2*ps
                        | bonus == LS3 = 3*ps
                        | otherwise    = ps
+
                 csc' = csc + (if isAnchor cell && cscore /= 0
                                 then wordMod (lscore + cscore) bonus
                                 else 0)
+
                 wmods' = if elem bonus [WS2, WS3] && notfill then bonus:wmods else wmods
                 in (wsc + lscore, csc', wmods', bingo + fromEnum notfill)
 
@@ -256,7 +251,7 @@ genAllPlays table trie rack = sortBy (flip $ comparing score) plays where
     plays = zip [H, V] [table, transpose table] >>= \(d, t) -> genPlays d t trie rack
 
 
-showPlay :: [String] -> Play -> [String]
+showPlay :: [String] -> Play -> IO ()
 showPlay table p@(Play d l s w) = let
     as = zip ((if d == H then goRight else goDown) l) w
     bs = zip (range tableBounds) (concat table)
@@ -266,16 +261,15 @@ showPlay table p@(Play d l s w) = let
         | otherwise = b: insert ((i, a):as) bs
     insert a b = map snd a ++ map snd b
 
-    in show p :(chunksOf (length table) $ insert as bs)
-  
+    in do putStrLn (show p)
+          mapM_ print $ chunksOf (length table) (insert as bs)
+
 
 main = do
     trie <- readTrie
-    let solutions = genAllPlays table trie "ETAOI_C"
-    putStrLn $ "Number of solutions: " ++ show (length solutions)
-    mapM_ (mapM_ print) $ take 10 $ map (showPlay table) solutions
-
-
+    let solutions = genAllPlays table trie "ETARO__"
+    printf "Number of solutions: %d\n" (length solutions)
+    mapM_ (showPlay table) (take 5 solutions)
 
 
 table =  [
@@ -286,12 +280,11 @@ table =  [
     "     HARDEN    ",
     "         N     ",
     "         T     ",
-    "      TOUR     ",
+    "      TOUR    E",
     "         YONDER",
-    "               ",
-    "               ",
-    "               ",
-    "               ",
+    "              O",
+    "              T",
+    "              I",
+    "              C",
     "               ",
     "               "]
-
