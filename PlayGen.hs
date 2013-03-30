@@ -37,8 +37,8 @@ tableBounds = ((1,1), (15,15)) :: (CellIndex, CellIndex)
 inBounds    = inRange tableBounds
 outOfBounds = not . inBounds
 
-goIndex direction = takeWhile inBounds . iterate direction
-[goUp, goDown, goLeft, goRight] = map goIndex [pred *** id, succ *** id, id *** pred, id *** succ]
+stepIndex direction = takeWhile inBounds . iterate direction
+[stepUp, stepDown, stepLeft, stepRight] = map stepIndex [pred *** id, succ *** id, id *** pred, id *** succ]
 
 isEmpty Empty = True
 isEmpty _     = False
@@ -121,8 +121,8 @@ contains = go where
         Nothing -> False
         Just n' -> go n' xs
 
-getNodeOf :: TrieNode -> String -> TrieNode
-getNodeOf n word = go n word where
+getNodeOfWord :: TrieNode -> String -> TrieNode
+getNodeOfWord n word = go n word where
     go n [] = n
     go n (x:xs) = case find ((==toUpper x) . val) (getChildren n) of
         Just n' -> go n' xs
@@ -143,8 +143,8 @@ parseTable table trie | check table = listArray tableBounds $ map go $ assocs ta
               | otherwise              = Anchor crsScore lset where
 
         step      = takeWhile (/=' ') . map (toUpper . (table'!)) . tail
-        fromUp    = reverse $ step $ goUp i
-        fromDown  = step $ goDown i
+        fromUp    = reverse $ step $ stepUp i
+        fromDown  = step $ stepDown i
         crsScore  = sum $ map (sum . map pieceScore) [fromUp, fromDown]
         lset      | null (fromUp ++ fromDown) = fullLSet
                   | otherwise = fromList $ wildcard: [c | c <- ['A'..'Z'], 
@@ -205,18 +205,18 @@ genPlays dir tbl trie rck | length rck > maxRackSize = error ("Rack too big, lim
                  | not (null leftWord)        = (i, getRightParts i (leftNode, leftWord, (wcardnum, rack)))
                  | otherwise                  = (i, getLeftParts prefLen >>= getRightParts i) where 
 
-        stepLeft = map (table!) $ drop 1 $ goLeft i
-        leftWord = reverse $ map (\(Filled c) -> c) $ takeWhile isFilled stepLeft
-        leftNode = getNodeOf trie leftWord
-        prefLen  = min maxRackSize (length $ takeWhile isEmpty $ stepLeft)
+        goLeft = map (table!) $ drop 1 $ stepLeft i
+        leftWord = reverse $ map (\(Filled c) -> c) $ takeWhile isFilled goLeft
+        leftNode = getNodeOfWord trie leftWord
+        prefLen  = min maxRackSize (length $ takeWhile isEmpty $ goLeft)
 
     getScores :: (CellIndex, [(String, String)]) -> [Play]
     getScores ((i, j), playwords) = map go playwords where
 
         go (a, b) = Play dir start' totalScore word where
             start   = (i, j - (fromIntegral $ length a))
-            cells   = map (table!) (goRight start)
-            bonuses = map (bonusTable!) (goRight start)
+            cells   = map (table!) (stepRight start)
+            bonuses = map (bonusTable!) (stepRight start)
             word    = a ++ b
             start'  = (if dir == H then id else swap) start
 
@@ -253,7 +253,7 @@ genAllPlays table trie rack = sortBy (flip $ comparing score) plays where
 
 showPlay :: [String] -> Play -> IO ()
 showPlay table p@(Play d l s w) = let
-    as = zip ((if d == H then goRight else goDown) l) w
+    as = zip ((if d == H then stepRight else stepDown) l) w
     bs = zip (range tableBounds) (concat table)
 
     insert ((i, a):as) ((j, b):bs)
