@@ -156,7 +156,7 @@ parseTable table trie | check table = listArray tableBounds $ map go $ assocs ta
 genPlays :: Direction -> [String] -> TrieNode -> String -> [Play]
 genPlays dir tbl trie rck | length rck > maxRackSize = error ("Rack too big, limit is " ++ show maxRackSize)
                           | wcardnum   > maxWcards   = error ("Too many wildcards, limit is " ++ show maxWcards)
-                          | otherwise = getScores =<< (filter (not . null . snd) . parMap rdeepseq genPlaysAt . range) tableBounds where
+                          | otherwise = getScores =<< parMap rdeepseq genPlaysAt (range tableBounds) where
 
     table = parseTable tbl trie 
     (wcardnum, rack) = first length $ partition (==wildcard) rck
@@ -267,17 +267,17 @@ showPlay table p@(Play d l s w) = let
 
 main = do
     trie <- readTrie
-    let solutions = genAllPlays table trie "ETARO__"
+    let solutions = genAllPlays table trie "ETAOI__"  
     printf "Number of solutions: %d\n" (length solutions)
-    mapM_ (showPlay table) (take 5 solutions)
+    mapM_ (showPlay table) (take 1 solutions)
 
 
 table =  [
     "          CARAT",
-    "          A    ",
+    "         BA    ",
     "          I    ",
     "          R    ",
-    "     HARDEN    ",
+    "   REHARDEN    ",
     "         N     ",
     "         T     ",
     "      TOUR    E",
