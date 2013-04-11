@@ -29,7 +29,7 @@ type TrieArray  = UArray Int32 Int32
 type CellIndex  = (Int32, Int32)
 type PrefixData = (TrieNode, String, (Int, String))
 
-data Cell      = Filled Char | Anchor {crossScore :: !Int, lset:: !LetterSet} | Empty deriving (Eq, Show)
+data Cell      = Filled !Char | Anchor {crossScore :: !Int, lset:: !LetterSet} | Empty deriving (Eq, Show)
 data Direction = V | H deriving (Eq, Show)
 data Play      = Play {direction :: !Direction, location :: !CellIndex, score :: !Int, word :: !String} deriving (Eq, Show)
 
@@ -115,18 +115,17 @@ getChildren !(TrieNode t ch _ _ _)
             n = getNode t i
 
 contains :: TrieNode -> String -> Bool
-contains = go where
-    go !n ![]     = eow n
-    go !n !(x:xs) = case find ((==toUpper x) . val) (getChildren n) of
-        Nothing -> False
-        Just n' -> go n' xs
+contains n w = go w n where
+    go ![]     !n = eow n
+    go !(x:xs) !n = maybe False (go xs) (find ((==toUpper x) . val) (getChildren n))
 
 getNodeOfWord :: TrieNode -> String -> TrieNode
-getNodeOfWord n word = go n word where
-    go n [] = n
-    go n (x:xs) = case find ((==toUpper x) . val) (getChildren n) of
-        Just n' -> go n' xs
-        Nothing -> error $ "The Scrabble table contains an invalid word: " ++ word
+getNodeOfWord n w = go w n where
+    go []     n = n
+    go (x:xs) n = maybe 
+        (error $ "The Scrabble table contains an invalid word: " ++ w)
+        (go xs) 
+        (find ((==toUpper x) . val) (getChildren n))
 
 parseTable :: [String] -> TrieNode -> Array CellIndex Cell 
 parseTable table trie | check table = listArray tableBounds $ map go $ assocs table' 
@@ -154,8 +153,8 @@ parseTable table trie | check table = listArray tableBounds $ map go $ assocs ta
 -- Play generation
 
 genPlays :: Direction -> [String] -> TrieNode -> String -> [Play]
-genPlays dir tbl trie rck | length rck > maxRackSize = error ("Rack too big, limit is " ++ show maxRackSize)
-                          | wcardnum   > maxWcards   = error ("Too many wildcards, limit is " ++ show maxWcards)
+genPlays dir tbl trie rck | length rck > maxRackSize = error $ printf "Rack too big, limit is %d" maxRackSize
+                          | wcardnum   > maxWcards   = error $ printf "Too many wildcards, limit is %d" maxWcards
                           | otherwise = getScores =<< parMap rdeepseq genPlaysAt (range tableBounds) where
 
     table = parseTable tbl trie 
@@ -164,41 +163,42 @@ genPlays dir tbl trie rck | length rck > maxRackSize = error ("Rack too big, lim
     maybeDel :: String -> TrieNode -> Maybe (TrieNode, String)
     maybeDel []     n = Nothing
     maybeDel (x:xs) n | x == val n = Just (n, xs)
-                      | otherwise  = maybeDel xs n >>= return . second (x:)
+                      | otherwise  = second (x:) `fmap` maybeDel xs n
 
     leftParts :: [PrefixData]
     leftParts = (trie, "", (wcardnum, rack)): next trie rack wcardnum where
 
-        next n r w = no_wcard ++ with_wcard where
+        next n r w = concat $ no_wcard ++ with_wcard where
             chs        = getChildren n 
-            no_wcard   = (if null r then [] else concat [go id ch r' w | Just (ch, r') <- map (maybeDel r) chs]) 
-            with_wcard = (if w == 0 then [] else concat [go toLower ch r (w - 1) | ch <- chs])
+            no_wcard   = [go id ch r' w | not (null r), Just (ch, r') <- map (maybeDel r) chs]
+            with_wcard = [go toLower ch r (w - 1) | w /= 0, ch <- chs]
 
         go f n r w = (n, [c], (w, r)): [(n, c:p, wr) | (n, p, wr) <- next n r w] where
             c = f (val n)
 
     leftPartMemo :: Array Int [PrefixData]
-    leftPartMemo = accumArray (flip (:)) [] (0, maxRackSize) [(length pref, a) | a@(n, pref, (w, r)) <- leftParts]
+    leftPartMemo = accumArray (flip (:)) [] (0, maxRackSize) [(length pref, a) | a@(_, pref, _) <- leftParts]
 
     getLeftParts :: Int -> [PrefixData]
     getLeftParts l = [0..l] >>= (leftPartMemo!)
 
     getRightParts :: CellIndex -> PrefixData -> [(String, String)]
-    getRightParts i (n, pref, (w, r)) = map (pref,) $ next n r w i (table ! i) where
+    getRightParts i (n, pref, (w, r)) = map (pref,) $ concat $ next n r w i (table ! i) where
 
-        next n r w (i,j) (Filled c) = concat [go (const c) ch r w (i, j + 1) | ch <- getChildren n, val ch == toUpper c]
+        next n r w (i,j) (Filled c) = [go (const c) ch r w (i, j + 1) | ch <- getChildren n, val ch == toUpper c]
         next n r w (i,j) cell       = no_wcard ++ with_wcard where
             i'         = (i, j + 1)
             chs        = (if isEmpty cell then id else filter (hasLetter (lset cell) . val)) (getChildren n)
-            no_wcard   = (if null r then [] else concat [go id ch r' w i' | Just (ch, r') <- map (maybeDel r) chs])
-            with_wcard = (if w == 0 then [] else concat [go toLower ch r (w - 1) i' | ch <- chs])
+            no_wcard   = [go id ch r' w i' | not (null r), Just (ch, r') <- map (maybeDel r) chs]
+            with_wcard = [go toLower ch r (w - 1) i' | w /= 0, ch <- chs]
 
-        go f n r w i = add ++ rest where
+        go f n r w i = word ++ rest where
             c    = f (val n)
             cell = table ! i
             inb  = inBounds i
-            add  = (if eow n && ((not inb) || (not $ isFilled cell)) then [[c]] else [])
-            rest = (if inb then map (c:) (next n r w i cell) else []) 
+            word = [[c] | eow n, (not inb) || (not $ isFilled cell)]
+            rest = [c:x | inb, x <- concat $ next n r w i cell]
+
 
     genPlaysAt :: CellIndex -> (CellIndex, [(String, String)])
     genPlaysAt i | not $ isAnchor $ table ! i = (i, [])
@@ -239,11 +239,11 @@ genPlays dir tbl trie rck | length rck > maxRackSize = error ("Rack too big, lim
                                 then wordMod (lscore + cscore) bonus
                                 else 0)
 
-                wmods' = if elem bonus [WS2, WS3] && notfill then bonus:wmods else wmods
+                wmods' = (if elem bonus [WS2, WS3] && notfill then (bonus:) else id) wmods
                 in (wsc + lscore, csc', wmods', bingo + fromEnum notfill)
 
             (wsc, csc, wmods, bingo) = foldl' process (0, 0, [], 0) (zip3 word cells bonuses)
-            totalScore = csc + (foldl' wordMod wsc wmods) + (if bingo == 7 then 50 else 0)
+            totalScore = csc + foldl' wordMod wsc wmods + 50 * fromEnum (bingo == 7)
 
 
 genAllPlays :: [String] -> TrieNode -> String -> [Play]
@@ -262,14 +262,14 @@ showPlay table p@(Play d l s w) = let
     insert a b = map snd a ++ map snd b
 
     in do putStrLn (show p)
-          mapM_ print $ chunksOf (length table) (insert as bs)
+          --mapM_ print $ chunksOf (length table) (insert as bs)
 
 
 main = do
     trie <- readTrie
-    let solutions = genAllPlays table trie "ETAOI__"  
+    let solutions = genAllPlays table trie "ETAOI"  
     printf "Number of solutions: %d\n" (length solutions)
-    mapM_ (showPlay table) (take 1 solutions)
+    mapM_ (showPlay table) (take 5 solutions)
 
 
 table =  [
