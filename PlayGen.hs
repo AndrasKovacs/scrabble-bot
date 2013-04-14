@@ -262,7 +262,7 @@ showPlay table p@(Play d l s w) = let
     insert a b = map snd a ++ map snd b
 
     in do putStrLn (show p)
-          --mapM_ print $ chunksOf (length table) (insert as bs)
+          mapM_ print $ chunksOf (length table) (insert as bs)
 
 
 main = do

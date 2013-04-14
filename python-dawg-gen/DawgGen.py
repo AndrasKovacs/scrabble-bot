@@ -13,11 +13,10 @@ import os
 ###### config ######
 
 #edit this for custom dictionary
-dict_file = r"Dictionaries\TWL06.txt"
-
+dict_file = r"..\Dictionaries\TWL06.txt"
 
 temp_file = "trie.tmp"
-output_file = r"..\twl06.dawg"
+output_file = r"twl06.dawg"
 
 ####################
 
@@ -168,9 +167,7 @@ outfile.close()
 
 ################## call Haskell converter ##########################
 
-# Build it if necessary:
-subprocess.call(["ghc", "--make", "-O2", "TrieGen.hs"])
 
 # serialize to Haskell Binary format
-subprocess.call(["TrieGen.exe", temp_file, output_file])
+subprocess.call(["runhaskell", "Convert.hs", temp_file, output_file])
 os.remove(temp_file)
