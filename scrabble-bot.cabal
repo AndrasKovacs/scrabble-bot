@@ -11,17 +11,17 @@ category:            Game
 build-type:          Simple
 cabal-version:       >=1.8
 stability:           experimental
-data-files:          dictionaries/*.txt
-extra-source-files:  python-dawg-gen/Serialize.hs, python-dawg-gen/DawgGen.py, python-dawg-gen/README.md
+data-files:          dictionaries/*.txt, twl06.dawg
 
 
 executable scrabble-bot
     main-is:              PlayGen.hs        
-    build-depends:        base ==4.6.*, array ==0.4.*, binary ==0.7.*, split ==0.2.*, parallel ==3.2.*, containers ==0.5.*, mtl ==2.1.*
+    build-depends:        base ==4.6.*, array ==0.4.*, binary ==0.7.*, split ==0.2.*, parallel ==3.2.*, 
+                          containers ==0.5.*, mtl ==2.1.*, directory==1.2.*, deepseq==1.3.*, dawg>=0.1.0.0
+    other-modules:        GameData
+    ghc-options:          -O2 -rtsopts -threaded -with-rtsopts=-N
 
-executable dawg-gen
-    main-is:        DawgGen.hs
-    build-depends:  base ==4.6.*, containers ==0.5.*, binary ==0.7.*, array ==0.4.*, directory ==1.2.*, mtl ==2.1.*
 
-
+-- todo:
+--      decide on some moderately convenient UI
 
