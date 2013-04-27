@@ -14,14 +14,13 @@ stability:           experimental
 data-files:          dictionaries/*.txt, twl06.dawg
 
 
+Source-Repository head
+    Type: git
+    Location: https://github.com/AndrasKovacs/scrabble-bot
+
 executable scrabble-bot
     main-is:              Main.hs        
     build-depends:        base ==4.6.*, array ==0.4.*, binary ==0.7.*, split ==0.2.*, parallel ==3.2.*, 
                           containers ==0.5.*, mtl ==2.1.*, directory==1.2.*, deepseq==1.3.*, dawg>=0.1.0.0
     other-modules:        GameData, PlayGen
     ghc-options:          -O2 -rtsopts -threaded -with-rtsopts=-N
-
-
--- todo:
---      decide on some moderately convenient UI
-
