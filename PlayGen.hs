@@ -1,6 +1,7 @@
 
-
 {-# LANGUAGE LambdaCase, TupleSections, RecordWildCards, BangPatterns #-}
+
+module PlayGen (genAllPlays, showPlay) where
 
 import qualified Data.DAWG as D
 import Data.Int                     
@@ -12,22 +13,11 @@ import Control.Arrow
 import Control.Parallel.Strategies
 import Data.Ord                    
 import Data.Tuple                  
-import Text.Printf
-import System.Directory                 
-
+import Text.Printf            
 import GameData
-import Paths_scrabble_bot
 
-
--- config
-
-dawgFile = "twl06.dawg"
-dictFile = "dictionaries/TWL06.txt"
 maxRackSize = 7
 maxWcards = 2
-
-
--- Play generation
 
 genPlays :: Direction -> [String] -> D.Node -> String -> [Play]
 genPlays dir tbl dawg rck | length rck > maxRackSize = error $ printf "Rack too big, limit is %d" maxRackSize
@@ -147,30 +137,3 @@ showPlay table p@(Play d l s w) = let
 
     in do putStrLn (show p)
           mapM_ print $ chunksOf (length table) (insert as bs)
-
-
-main = do
-    dictPath <- getDataFileName dictFile
-    dawgPath <- getDataFileName dawgFile
-    dawg <- D.fromFile dawgPath
-    let solutions = genAllPlays table dawg "ETAOI"  
-    printf "Number of solutions: %d\n" (length solutions)
-    mapM_ (showPlay table) (take 4 solutions)
-
-
-table =  [
-    "          CARAT",
-    "         BA    ",
-    "          I    ",
-    "          R    ",
-    "   REHARDEN    ",
-    "         N     ",
-    "         T     ",
-    "      TOUR    E",
-    "         YONDER",
-    "              O",
-    "              T",
-    "              I",
-    "              C",
-    "               ",
-    "               "]
