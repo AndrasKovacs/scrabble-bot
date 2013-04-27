@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 
 import qualified Data.DAWG as D
 import PlayGen
@@ -14,7 +15,14 @@ getSolutions :: IO [Play]
 getSolutions = do
     dictPath <- getDataFileName dictFile
     dawgPath <- getDataFileName dawgFile
-    dawg <- D.fromFile dawgPath
+    dawg <- do
+        doesFileExist dawgPath >>= \case
+            True  -> D.fromFile dawgPath
+            False -> do 
+                ws <- fmap lines $ readFile dictPath
+                let dawg = D.fromList ws
+                D.toFile dawgPath dawg
+                return dawg 
     return $ genAllPlays table dawg rack
 
 main = do
@@ -27,7 +35,7 @@ main = do
 
 numSolutionsShown = 20
 
-rack = "RECAO__"
+rack = "RECA"
 
 table =  [
     "          CARAT",
