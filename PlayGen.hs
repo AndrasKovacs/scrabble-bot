@@ -3,7 +3,7 @@
 
 module PlayGen (genAllPlays, showPlay) where
 
-import qualified Data.DAWG as D
+import qualified Data.DAWG.Packed as D
 import Data.Int                     
 import Data.Array.Unboxed                                            
 import Data.List                    

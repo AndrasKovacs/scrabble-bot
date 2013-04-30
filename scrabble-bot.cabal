@@ -2,7 +2,15 @@
 name:                scrabble-bot
 version:             0.1.0.0
 synopsis:            Scrabble play generation.
--- description:         
+description:     
+
+    A small program for generating plays for Scrabble tables.
+
+    Currently only the classic Scrabble board layout is supported and the user interface is pretty much nonexistent. 
+    You can change the board, the rack and the number of plays displayed by manually editing the Main source file and rebuilding. 
+    Hence, downloading the source distribution is advised. 
+
+
 license:             BSD3
 license-file:        LICENSE
 author:              András Kovács
@@ -11,7 +19,7 @@ category:            Game
 build-type:          Simple
 cabal-version:       >=1.8
 stability:           experimental
-data-files:          dictionaries/*.txt, twl06.dawg
+data-files:          dictionaries/*.txt
 
 
 Source-Repository head
@@ -21,6 +29,6 @@ Source-Repository head
 executable scrabble-bot
     main-is:              Main.hs        
     build-depends:        base ==4.6.*, array ==0.4.*, binary ==0.7.*, split ==0.2.*, parallel ==3.2.*, 
-                          containers ==0.5.*, mtl ==2.1.*, directory==1.2.*, deepseq==1.3.*, dawg>=0.1.0.0
+                          containers ==0.5.*, mtl ==2.1.*, directory==1.2.*, deepseq==1.3.*, packed-dawg>=0.1.0.0
     other-modules:        GameData, PlayGen
     ghc-options:          -O2 -rtsopts -threaded -with-rtsopts=-N

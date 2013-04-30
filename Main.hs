@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
-import qualified Data.DAWG as D
+import qualified Data.DAWG.Packed as D
 import PlayGen
 import GameData
 import Paths_scrabble_bot

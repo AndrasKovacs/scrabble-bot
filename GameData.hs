@@ -2,7 +2,7 @@
 
 module GameData where
 
-import qualified Data.DAWG as D
+import qualified Data.DAWG.Packed as D
 import Data.Array.Unboxed
 import Data.Int
 import Data.Char
