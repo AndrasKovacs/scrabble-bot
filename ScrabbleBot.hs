@@ -295,8 +295,9 @@ countingSortBy :: forall a i. Ix i => (a -> i) -> [a] -> [a]
 countingSortBy _ [] = []
 countingSortBy f xs = let
 
-	minmax (x:xs) = foldl' go (x, x) xs
-	go (!mn, !mx) x = (min mn x, max mx x) 
+	minmax (x:xs) = foldl' go (x, x) xs where
+		go (!mn, !mx) x = (min mn x, max mx x) 
+		
 	is = map f xs
 
 	acc :: A.Array i [a]
@@ -312,6 +313,7 @@ main = do
 		sols = countingSortBy (negate . fst) $ genMoves defConf refRack refTable
 
 	mapM_ print $ take 10 sols
+	print $ length sols
 
 
 
